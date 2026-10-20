@@ -63,7 +63,7 @@ async function startServer() {
   await new Promise((resolve, reject) => {
     const handleListenError = (error) => reject(error);
     server.once('error', handleListenError);
-    server.listen(port, () => {
+    server.listen(port,"0.0.0.0", () => {
       server.off('error', handleListenError);
       resolve();
     });
