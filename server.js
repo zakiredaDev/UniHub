@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { connectDB, closeDB } from './config/db.js';
+import { connectDB, closeDB, pingDB } from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import subjectRoutes from './routes/subjectRoutes.js';
 import roomRoutes from './routes/roomRoutes.js';
@@ -14,11 +14,28 @@ import { profileDir } from './middlewares/profileUpload.js';
 
 dotenv.config();
 
+// منع السيرفر من الوقوع بسبب أخطاء غير متوقعة (بتتسجل في اللوج بدل ما العملية تموت أو تعلّق)
+process.on('uncaughtException', (error) => {
+  console.error('[uncaughtException]', error);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
 // Create express server
 const app = express();
 const server = createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+const io = new Server(server, {
+  cors: { origin: '*' },
+  transports: ['websocket', 'polling'],
+  pingInterval: 25000,
+  pingTimeout: 60000
+});
 const port = process.env.PORT || 4000;
+
+// الاستضافات اللي ورا proxy بتقطع الاتصالات الخاملة، فنخلي مهلة الـ keep-alive أطول
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
 
 // Allow to app core only
 app.use(cors());
@@ -32,15 +49,34 @@ app.use((req, res, next) => {
   };
   next();
 });
+
+// نقطة فحص (حطها قبل الراوترات عشان تفضل ترد حتى لو راوتر علّق). بتفحص الداتابيز فعلياً
+app.get('/health', async (req, res) => {
+  const uptime = Math.round(process.uptime());
+  try {
+    await Promise.race([
+      pingDB(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('db timeout')), 3000))
+    ]);
+    res.json({ status: 'ok', db: 'up', uptime });
+  } catch (error) {
+    res.status(503).json({ status: 'degraded', db: 'down', uptime });
+  }
+});
+
+// لو أي طلب استنى أكتر من 25 ثانية من غير رد (مثلاً راوتر async وقع فيه خطأ)، نرد بخطأ بدل ما يفضل معلّق
+app.use((req, res, next) => {
+  res.setTimeout(25000, () => {
+    if (!res.headersSent) res.status(503).json({ message: 'السيرفر اتأخر في الرد. جرّب تاني.' });
+  });
+  next();
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/subjects', subjectRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/files', fileRoutes);
 addChatSocket(io);
-
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
 
 // Middleware
 app.use((error, req, res, next) => {
@@ -54,7 +90,10 @@ app.use((error, req, res, next) => {
   if (error?.message?.includes('نوع الملف مش مدعوم')) {
     return res.status(400).json({ message: 'نوع الملف مش مدعوم. اختار PDF أو Word أو PowerPoint.' });
   }
-  if (error) return res.status(400).json({ message: 'حصلت مشكلة في الطلب. راجع البيانات وحاول تاني.' });
+  if (error) {
+    console.error('[request error]', error);
+    return res.status(400).json({ message: 'حصلت مشكلة في الطلب. راجع البيانات وحاول تاني.' });
+  }
   return next();
 });
 
@@ -63,7 +102,7 @@ async function startServer() {
   await new Promise((resolve, reject) => {
     const handleListenError = (error) => reject(error);
     server.once('error', handleListenError);
-    server.listen(port,"0.0.0.0", () => {
+    server.listen(port, '0.0.0.0', () => {
       server.off('error', handleListenError);
       resolve();
     });
@@ -71,12 +110,13 @@ async function startServer() {
   console.log(`UniHub server is running on port ${port}`);
 }
 
-startServer().catch((error) => {
+startServer().catch(async (error) => {
   if (error.code === 'EADDRINUSE') {
     console.error(`المنفذ ${port} مستخدم بالفعل. اقفل نسخة السيرفر القديمة أو غيّر قيمة PORT.`);
   } else {
     console.error(`Server failed to start: ${error.message}`);
   }
-  closeDB().catch(() => {});
-  process.exitCode = 1;
+  try { await closeDB(); } catch (closeError) { /* ignore */ }
+  // مهم: نقفل العملية فعلياً. لو سيبناها مفتوحة هتفضل "Live" من غير ما تسمع على أي بورت.
+  process.exit(1);
 });
