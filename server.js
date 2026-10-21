@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+/*
 import { connectDB, closeDB, pingDB } from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import subjectRoutes from './routes/subjectRoutes.js';
@@ -12,7 +13,9 @@ import addChatSocket from './sockets/chatSocket.js';
 import dotenv from 'dotenv';
 import { profileDir } from './middlewares/profileUpload.js';
 
+
 dotenv.config();
+*/
 
 // منع السيرفر من الوقوع بسبب أخطاء غير متوقعة (بتتسجل في اللوج بدل ما العملية تموت أو تعلّق)
 process.on('uncaughtException', (error) => {
@@ -40,6 +43,7 @@ server.headersTimeout = 66000;
 // Allow to app core only
 app.use(cors());
 app.use(express.json());
+/*
 app.use('/uploads/profiles', express.static(profileDir));
 
 app.get('/', (req, res) => res.send('UniHub API is running'));
@@ -138,6 +142,11 @@ startServer().catch(async (error) => {
   } else {
     console.error(`Server failed to start: ${error.message}`);
   }
-  try { await closeDB(); } catch (closeError) { /* ignore */ }
+  try { await closeDB(); } catch (closeError) { }
+
   process.exit(1);
 });
+
+*/
+
+server.listen(port, '0.0.0.0');
