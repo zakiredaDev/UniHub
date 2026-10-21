@@ -41,6 +41,9 @@ server.headersTimeout = 66000;
 app.use(cors());
 app.use(express.json());
 app.use('/uploads/profiles', express.static(profileDir));
+
+app.get('/', (req, res) => res.send('UniHub API is running'));
+
 app.use((req, res, next) => {
   const sendJson = res.json.bind(res);
   res.json = (data) => {
