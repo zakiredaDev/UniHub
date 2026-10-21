@@ -43,7 +43,6 @@ app.use(express.json());
 app.use('/uploads/profiles', express.static(profileDir));
 
 app.get('/', (req, res) => res.send('UniHub API is running'));
-
 app.use((req, res, next) => {
   const sendJson = res.json.bind(res);
   res.json = (data) => {
@@ -54,6 +53,9 @@ app.use((req, res, next) => {
 });
 
 // نقطة فحص (حطها قبل الراوترات عشان تفضل ترد حتى لو راوتر علّق). بتفحص الداتابيز فعلياً
+// آخر خطأ في الاتصال بالداتابيز (تشخيص مؤقت: بيظهر في /health عشان تشوف السبب من المتصفح)
+let lastDbError = null;
+
 app.get('/health', async (req, res) => {
   const uptime = Math.round(process.uptime());
   try {
@@ -63,7 +65,8 @@ app.get('/health', async (req, res) => {
     ]);
     res.json({ status: 'ok', db: 'up', uptime });
   } catch (error) {
-    res.status(503).json({ status: 'degraded', db: 'down', uptime });
+    // TODO: شيل حقل dbError بعد ما تحل المشكلة
+    res.status(503).json({ status: 'degraded', db: 'down', uptime, dbError: lastDbError || error.message });
   }
 });
 
@@ -100,8 +103,23 @@ app.use((error, req, res, next) => {
   return next();
 });
 
+// نتصل بالداتابيز في الخلفية ونفضل نعيد المحاولة لحد ما ننجح، من غير ما السيرفر يقع
+async function connectDBInBackground() {
+  while (true) {
+    try {
+      await connectDB(3, 5000);
+      lastDbError = null;
+      return;
+    } catch (error) {
+      lastDbError = `${error.name}: ${error.message}`;
+      console.error(`[startup] MongoDB connect failed: ${error.message} — retrying in 15s`);
+      await new Promise((resolve) => setTimeout(resolve, 15000));
+    }
+  }
+}
+
 async function startServer() {
-  await connectDB();
+  // نفتح البورت الأول، عشان الاستضافة تشوف إن التطبيق شغال (مفيش NO_LIVE_PORT)
   await new Promise((resolve, reject) => {
     const handleListenError = (error) => reject(error);
     server.once('error', handleListenError);
@@ -111,6 +129,7 @@ async function startServer() {
     });
   });
   console.log(`UniHub server is running on port ${port}`);
+  connectDBInBackground(); // لو فشل، هتلاقي السبب في اللوج و /health هيرجّع 503
 }
 
 startServer().catch(async (error) => {
@@ -120,6 +139,5 @@ startServer().catch(async (error) => {
     console.error(`Server failed to start: ${error.message}`);
   }
   try { await closeDB(); } catch (closeError) { /* ignore */ }
-  // مهم: نقفل العملية فعلياً. لو سيبناها مفتوحة هتفضل "Live" من غير ما تسمع على أي بورت.
   process.exit(1);
 });
