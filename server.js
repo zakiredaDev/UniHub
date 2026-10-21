@@ -10,20 +10,13 @@ import subjectRoutes from './routes/subjectRoutes.js';
 import roomRoutes from './routes/roomRoutes.js';
 import fileRoutes from './routes/fileRoutes.js';
 import addChatSocket from './sockets/chatSocket.js';
+*/
 import dotenv from 'dotenv';
+/*
 import { profileDir } from './middlewares/profileUpload.js';
-
-
-dotenv.config();
 */
 
-// منع السيرفر من الوقوع بسبب أخطاء غير متوقعة (بتتسجل في اللوج بدل ما العملية تموت أو تعلّق)
-process.on('uncaughtException', (error) => {
-  console.error('[uncaughtException]', error);
-});
-process.on('unhandledRejection', (reason) => {
-  console.error('[unhandledRejection]', reason);
-});
+dotenv.config();
 
 // Create express server
 const app = express();
@@ -35,10 +28,6 @@ const io = new Server(server, {
   pingTimeout: 60000
 });
 const port = process.env.PORT || 4000;
-
-// الاستضافات اللي ورا proxy بتقطع الاتصالات الخاملة، فنخلي مهلة الـ keep-alive أطول
-server.keepAliveTimeout = 65000;
-server.headersTimeout = 66000;
 
 // Allow to app core only
 app.use(cors());
