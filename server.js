@@ -3,20 +3,24 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-/*
 import { connectDB, closeDB, pingDB } from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import subjectRoutes from './routes/subjectRoutes.js';
 import roomRoutes from './routes/roomRoutes.js';
 import fileRoutes from './routes/fileRoutes.js';
 import addChatSocket from './sockets/chatSocket.js';
-*/
 import dotenv from 'dotenv';
-/*
 import { profileDir } from './middlewares/profileUpload.js';
-*/
 
 dotenv.config();
+
+// منع السيرفر من الوقوع بسبب أخطاء غير متوقعة (بتتسجل في اللوج بدل ما العملية تموت أو تعلّق)
+process.on('uncaughtException', (error) => {
+  console.error('[uncaughtException]', error);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
 
 // Create express server
 const app = express();
@@ -29,13 +33,14 @@ const io = new Server(server, {
 });
 const port = process.env.PORT || 4000;
 
+// الاستضافات اللي ورا proxy بتقطع الاتصالات الخاملة، فنخلي مهلة الـ keep-alive أطول
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+
 // Allow to app core only
 app.use(cors());
 app.use(express.json());
-/*
 app.use('/uploads/profiles', express.static(profileDir));
-
-app.get('/', (req, res) => res.send('UniHub API is running'));
 app.use((req, res, next) => {
   const sendJson = res.json.bind(res);
   res.json = (data) => {
@@ -46,9 +51,6 @@ app.use((req, res, next) => {
 });
 
 // نقطة فحص (حطها قبل الراوترات عشان تفضل ترد حتى لو راوتر علّق). بتفحص الداتابيز فعلياً
-// آخر خطأ في الاتصال بالداتابيز (تشخيص مؤقت: بيظهر في /health عشان تشوف السبب من المتصفح)
-let lastDbError = null;
-
 app.get('/health', async (req, res) => {
   const uptime = Math.round(process.uptime());
   try {
@@ -58,8 +60,7 @@ app.get('/health', async (req, res) => {
     ]);
     res.json({ status: 'ok', db: 'up', uptime });
   } catch (error) {
-    // TODO: شيل حقل dbError بعد ما تحل المشكلة
-    res.status(503).json({ status: 'degraded', db: 'down', uptime, dbError: lastDbError || error.message });
+    res.status(503).json({ status: 'degraded', db: 'down', uptime });
   }
 });
 
@@ -101,10 +102,8 @@ async function connectDBInBackground() {
   while (true) {
     try {
       await connectDB(3, 5000);
-      lastDbError = null;
       return;
     } catch (error) {
-      lastDbError = `${error.name}: ${error.message}`;
       console.error(`[startup] MongoDB connect failed: ${error.message} — retrying in 15s`);
       await new Promise((resolve) => setTimeout(resolve, 15000));
     }
@@ -131,11 +130,6 @@ startServer().catch(async (error) => {
   } else {
     console.error(`Server failed to start: ${error.message}`);
   }
-  try { await closeDB(); } catch (closeError) { }
-
+  try { await closeDB(); } catch (closeError) { /* ignore */ }
   process.exit(1);
 });
-
-*/
-
-server.listen(port, '0.0.0.0');
